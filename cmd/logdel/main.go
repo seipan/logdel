@@ -1,55 +1,44 @@
 package main
 
-import (
-	"errors"
-	"flag"
-	"fmt"
-	"os"
+// func main() {
+// 	if err := run(); err != nil {
+// 		fmt.Fprintln(os.Stderr, err)
+// 		os.Exit(1)
+// 	}
+// }
 
-	"github.com/seipan/logdel"
-	"github.com/seipan/logdel/internal"
-	"golang.org/x/tools/go/packages"
-)
+// func run() error {
+// 	logdel.Analyzer.Flags = flag.NewFlagSet(logdel.Analyzer.Name, flag.ExitOnError)
+// 	logdel.Analyzer.Flags.Parse(os.Args[1:])
 
-func main() {
-	if err := run(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-}
+// 	if logdel.Analyzer.Flags.NArg() < 1 {
+// 		return errors.New("patterns of packages must be specified")
+// 	}
 
-func run() error {
-	logdel.Analyzer.Flags = flag.NewFlagSet(logdel.Analyzer.Name, flag.ExitOnError)
-	logdel.Analyzer.Flags.Parse(os.Args[1:])
+// 	pkgs, err := packages.Load(logdel.Analyzer.Config, logdel.Analyzer.Flags.Args()...)
+// 	if err != nil {
+// 		return err
+// 	}
 
-	if logdel.Analyzer.Flags.NArg() < 1 {
-		return errors.New("patterns of packages must be specified")
-	}
+// 	for _, pkg := range pkgs {
+// 		prog, srcFuncs, err := internal.BuildSSA(pkg, logdel.Analyzer.SSABuilderMode)
+// 		if err != nil {
+// 			return err
+// 		}
 
-	pkgs, err := packages.Load(logdel.Analyzer.Config, logdel.Analyzer.Flags.Args()...)
-	if err != nil {
-		return err
-	}
+// 		pass := &internal.Pass{
+// 			Package:  pkg,
+// 			SSA:      prog,
+// 			SrcFuncs: srcFuncs,
+// 			Stdin:    os.Stdin,
+// 			Stdout:   os.Stdout,
+// 			Stderr:   os.Stderr,
+// 		}
 
-	for _, pkg := range pkgs {
-		prog, srcFuncs, err := internal.BuildSSA(pkg, logdel.Analyzer.SSABuilderMode)
-		if err != nil {
-			return err
-		}
+// 		if err := logdel.Analyzer.Run(pass); err != nil {
+// 			return err
+// 		}
+// 	}
 
-		pass := &internal.Pass{
-			Package:  pkg,
-			SSA:      prog,
-			SrcFuncs: srcFuncs,
-			Stdin:    os.Stdin,
-			Stdout:   os.Stdout,
-			Stderr:   os.Stderr,
-		}
-
-		if err := logdel.Analyzer.Run(pass); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
+// 	return nil
+// }
