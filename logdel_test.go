@@ -9,7 +9,7 @@ import (
 func TestRun(t *testing.T) {
 	err := logdel.Run("test.go")
 	if err != nil {
-
+		t.Fatal("unexpected error:", err)
 	}
 }
 
