@@ -6,36 +6,57 @@ import (
 	"fmt"
 	"go/ast"
 	"go/format"
-	"go/parser"
 	"go/token"
+	"go/types"
 	"io/ioutil"
 	"log"
 	"os"
 	"strings"
 
+	"github.com/gostaticanalysis/analysisutil"
+	"golang.org/x/tools/go/analysis"
+	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/astutil"
 )
 
-func Run(filename string) error {
-	fset := token.NewFileSet()
+var Analyzer = &analysis.Analyzer{
+	Name: "logdel",
+	Doc:  "logdel is ......",
+	Run:  run,
+	Requires: []*analysis.Analyzer{
+		inspect.Analyzer,
+	},
+}
 
-	file, err := parser.ParseFile(fset, filename, nil, 0)
-	if err != nil {
-		log.Fatalln("Error:", err)
-		return nil
+func run(pass *analysis.Pass) (any, error) {
+	for _, v := range pass.Files {
+		RunDeleteLog(pass, v)
 	}
 
-	_, ok := getComment(file)
+	return nil, nil
+}
 
-	file, err = deleteLogfromAST(file, ok)
+func RunDeleteLog(pass *analysis.Pass, file *ast.File) error {
+	fset := token.NewFileSet()
+
+	// file, err := parser.ParseFile(fset, filename, nil, parser.ParseComments)
+	// if err != nil {
+	// 	log.Fatalln("Error:", err)
+	// 	return nil
+	// }
+	mp, ok := getComment(file)
+
+	for i, _ := range mp {
+		log.Println(i)
+	}
+
+	file, err := deleteLogfromAST(file, ok)
 	if err != nil {
 		log.Fatalln("Error:", err)
 		return nil
 	}
 
 	f, err := ioutil.TempFile("", "logdelout.go")
-	fpath := f.Name()
-	fmt.Println(fpath)
 
 	if err != nil {
 		log.Fatalln("Error:", err)
@@ -48,11 +69,14 @@ func Run(filename string) error {
 		log.Fatalln("Error:", err)
 		return err
 	}
-	//log.Println(f)
+
 	writer.Flush()
 	f.Close()
-	
-	if err := os.Rename(f.Name(), filename); err != nil {
+
+	log.Println(file.Name.String())
+	log.Println(pass.String())
+
+	if err := os.Rename(f.Name(), file.Name.String()+".go"); err != nil {
 		log.Fatalln("Error:", err)
 		return err
 	}
@@ -63,7 +87,7 @@ func Run(filename string) error {
 func deleteLogfromAST(file *ast.File, importOk bool) (*ast.File, error) {
 	file, ok := astutil.Apply(file, func(cur *astutil.Cursor) bool {
 		if !importOk {
-			found, err := findLogImportInImportSpec(cur)
+			found, err := findLogImport(cur)
 			if err != nil {
 				return true
 			}
@@ -73,8 +97,7 @@ func deleteLogfromAST(file *ast.File, importOk bool) (*ast.File, error) {
 			}
 		}
 
-		// if c.Node belongs to ExprStmt, remove callExpr for dl
-		found, err := findLogInvocationInStmt(cur)
+		found, err := findLogInvocation(cur)
 		if err != nil {
 			return true
 		}
@@ -83,7 +106,6 @@ func deleteLogfromAST(file *ast.File, importOk bool) (*ast.File, error) {
 			return true
 		}
 
-		// if return false, traversing is stopped immediately
 		return true
 	}, nil).(*ast.File)
 
@@ -94,49 +116,54 @@ func deleteLogfromAST(file *ast.File, importOk bool) (*ast.File, error) {
 	return file, nil
 }
 
-func findLogImportInImportSpec(cr *astutil.Cursor) (bool, error) {
+func findLogImport(cr *astutil.Cursor) (bool, error) {
 	switch node := cr.Node().(type) {
 	case *ast.ImportSpec:
-		return cr.Index() >= 0 && node.Path.Value == "log", nil
+		return cr.Index() >= 0 && node.Path.Value == `"log"`, nil
 	}
 	return false, nil
 }
 
-func findLogInvocationInStmt(cr *astutil.Cursor) (bool, error) {
+func findLogInvocation(cr *astutil.Cursor) (bool, error) {
 	switch node := cr.Node().(type) {
 	case *ast.ExprStmt:
 		switch x := node.X.(type) {
 		case *ast.CallExpr:
-			return findDlInvocationInCallExpr(x, cr.Index())
+			return findLogInvocationInCallExpr(x, cr.Index())
 		}
 	case *ast.AssignStmt:
 		for _, r := range node.Rhs {
 			switch x := r.(type) {
 			case *ast.CallExpr:
-				return findDlInvocationInCallExpr(x, cr.Index())
+				return findLogInvocationInCallExpr(x, cr.Index())
 			}
 		}
 	case *ast.ReturnStmt:
 		for _, r := range node.Results {
 			switch x := r.(type) {
 			case *ast.CallExpr:
-				return findDlInvocationInCallExpr(x, cr.Index())
+				return findLogInvocationInCallExpr(x, cr.Index())
 			}
 		}
 	}
 	return false, nil
 }
 
-func findDlInvocationInCallExpr(callExpr *ast.CallExpr, idx int) (bool, error) {
+func findLogInvocationInCallExpr(callExpr *ast.CallExpr, idx int) (bool, error) {
 	switch fun := callExpr.Fun.(type) {
 	case *ast.SelectorExpr:
 		x2, ok := fun.X.(*ast.Ident)
 		if !ok {
-			return false, fmt.Errorf("x2 is not *ast.Ident: %v", fun.X)
+			return false, fmt.Errorf("this select-expr's X is not ident: %v", fun.X)
 		}
 
-		// check node is in a slice
+		if idx >= 0 && "log" == x2.Name {
+			log.Println(x2.Pos())
+			log.Println(x2.Name + "." + fun.Sel.Name)
+		}
+
 		return idx >= 0 && "log" == x2.Name, nil
+
 	default:
 		return false, nil
 	}
@@ -157,4 +184,30 @@ func getComment(file *ast.File) (map[token.Pos]string, bool) {
 	}
 
 	return mp, ok
+}
+
+func getImportObj(pass *analysis.Pass) map[types.Object]bool {
+	var mp map[types.Object]bool
+	pkgs := pass.Pkg.Imports()
+	obj := analysisutil.LookupFromImports(pkgs, "log", "Print")
+	mp[obj] = true
+	obj = analysisutil.LookupFromImports(pkgs, "log", "Println")
+	mp[obj] = true
+	obj = analysisutil.LookupFromImports(pkgs, "log", "Printf")
+	mp[obj] = true
+	obj = analysisutil.LookupFromImports(pkgs, "log", "Fatal")
+	mp[obj] = true
+	obj = analysisutil.LookupFromImports(pkgs, "log", "Fatalln")
+	mp[obj] = true
+	obj = analysisutil.LookupFromImports(pkgs, "log", "Fatalf")
+	mp[obj] = true
+	obj = analysisutil.LookupFromImports(pkgs, "log", "Panicf")
+	mp[obj] = true
+	obj = analysisutil.LookupFromImports(pkgs, "log", "Panic")
+	mp[obj] = true
+	obj = analysisutil.LookupFromImports(pkgs, "log", "Panicln")
+	mp[obj] = true
+
+	return mp
+
 }
