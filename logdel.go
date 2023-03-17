@@ -59,7 +59,6 @@ func RunDeleteLog(pass *analysis.Pass, file *ast.File) error {
 	}
 
 	writer := bufio.NewWriter(f)
-
 	if err := format.Node(writer, fset, file); err != nil {
 		log.Fatalln("Error:", err)
 		return err
@@ -152,7 +151,7 @@ func findLogInvocationInCallExpr(pass *analysis.Pass, callExpr *ast.CallExpr, id
 		}
 		_, ok = omp[types.ObjectOf(fun.Sel)]
 
-		if idx >= 0 && ok || "log" == x2.Name {
+		if idx >= 0 && ok {
 			pos := pass.Fset.Position(x2.Pos())
 			c, ok := cmp[pos.Filename+"_"+strconv.Itoa(pos.Line)]
 			if ok {
@@ -210,5 +209,4 @@ func getImportObj(pass *analysis.Pass) map[types.Object]bool {
 	mp[obj] = true
 
 	return mp
-
 }
