@@ -11,6 +11,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/gostaticanalysis/analysisutil"
@@ -39,18 +40,12 @@ func run(pass *analysis.Pass) (any, error) {
 func RunDeleteLog(pass *analysis.Pass, file *ast.File) error {
 	fset := token.NewFileSet()
 
-	// file, err := parser.ParseFile(fset, filename, nil, parser.ParseComments)
-	// if err != nil {
-	// 	log.Fatalln("Error:", err)
-	// 	return nil
-	// }
-	mp, ok := getComment(file)
+	files := pass.Fset.File(pass.Files[0].Pos())
 
-	for i, _ := range mp {
-		log.Println(i)
-	}
+	cmp, ok := getComment(pass, file)
+	omp := getImportObj(pass)
 
-	file, err := deleteLogfromAST(file, ok)
+	file, err := deleteLogfromAST(pass, file, ok, cmp, omp)
 	if err != nil {
 		log.Fatalln("Error:", err)
 		return nil
@@ -73,10 +68,7 @@ func RunDeleteLog(pass *analysis.Pass, file *ast.File) error {
 	writer.Flush()
 	f.Close()
 
-	log.Println(file.Name.String())
-	log.Println(pass.String())
-
-	if err := os.Rename(f.Name(), file.Name.String()+".go"); err != nil {
+	if err := os.Rename(f.Name(), files.Name()); err != nil {
 		log.Fatalln("Error:", err)
 		return err
 	}
@@ -84,7 +76,7 @@ func RunDeleteLog(pass *analysis.Pass, file *ast.File) error {
 	return nil
 }
 
-func deleteLogfromAST(file *ast.File, importOk bool) (*ast.File, error) {
+func deleteLogfromAST(pass *analysis.Pass, file *ast.File, importOk bool, cmp map[string]string, omp map[types.Object]bool) (*ast.File, error) {
 	file, ok := astutil.Apply(file, func(cur *astutil.Cursor) bool {
 		if !importOk {
 			found, err := findLogImport(cur)
@@ -97,7 +89,7 @@ func deleteLogfromAST(file *ast.File, importOk bool) (*ast.File, error) {
 			}
 		}
 
-		found, err := findLogInvocation(cur)
+		found, err := findLogInvocation(pass, cur, cmp, omp)
 		if err != nil {
 			return true
 		}
@@ -124,59 +116,68 @@ func findLogImport(cr *astutil.Cursor) (bool, error) {
 	return false, nil
 }
 
-func findLogInvocation(cr *astutil.Cursor) (bool, error) {
+func findLogInvocation(pass *analysis.Pass, cr *astutil.Cursor, cmp map[string]string, omp map[types.Object]bool) (bool, error) {
 	switch node := cr.Node().(type) {
 	case *ast.ExprStmt:
 		switch x := node.X.(type) {
 		case *ast.CallExpr:
-			return findLogInvocationInCallExpr(x, cr.Index())
+			return findLogInvocationInCallExpr(pass, x, cr.Index(), cmp, omp)
 		}
 	case *ast.AssignStmt:
 		for _, r := range node.Rhs {
 			switch x := r.(type) {
 			case *ast.CallExpr:
-				return findLogInvocationInCallExpr(x, cr.Index())
+				return findLogInvocationInCallExpr(pass, x, cr.Index(), cmp, omp)
 			}
 		}
 	case *ast.ReturnStmt:
 		for _, r := range node.Results {
 			switch x := r.(type) {
 			case *ast.CallExpr:
-				return findLogInvocationInCallExpr(x, cr.Index())
+				return findLogInvocationInCallExpr(pass, x, cr.Index(), cmp, omp)
 			}
 		}
 	}
 	return false, nil
 }
 
-func findLogInvocationInCallExpr(callExpr *ast.CallExpr, idx int) (bool, error) {
+func findLogInvocationInCallExpr(pass *analysis.Pass, callExpr *ast.CallExpr, idx int, cmp map[string]string, omp map[types.Object]bool) (bool, error) {
+	types := pass.TypesInfo
+
 	switch fun := callExpr.Fun.(type) {
 	case *ast.SelectorExpr:
 		x2, ok := fun.X.(*ast.Ident)
 		if !ok {
 			return false, fmt.Errorf("this select-expr's X is not ident: %v", fun.X)
 		}
+		_, ok = omp[types.ObjectOf(fun.Sel)]
 
-		if idx >= 0 && "log" == x2.Name {
-			log.Println(x2.Pos())
-			log.Println(x2.Name + "." + fun.Sel.Name)
+		if idx >= 0 && ok || "log" == x2.Name {
+			pos := pass.Fset.Position(x2.Pos())
+			c, ok := cmp[pos.Filename+"_"+strconv.Itoa(pos.Line)]
+			if ok {
+				if strings.Contains(c, "nocheck:thislog") {
+					return false, nil
+				}
+			}
+			log.Println(pos.Filename + " Line" + strconv.Itoa(pos.Line) + "  " + x2.Name + "." + fun.Sel.Name + " id deleted")
 		}
 
-		return idx >= 0 && "log" == x2.Name, nil
+		return idx >= 0 && ok, nil
 
 	default:
 		return false, nil
 	}
 }
 
-func getComment(file *ast.File) (map[token.Pos]string, bool) {
-	var mp = make(map[token.Pos]string)
+func getComment(pass *analysis.Pass, file *ast.File) (map[string]string, bool) {
+	var mp = make(map[string]string)
 	var ok bool
 
 	for _, cg := range file.Comments {
 		for _, c := range cg.List {
-			pos := c.Pos()
-			mp[pos] = c.Text
+			pos := pass.Fset.Position(c.Pos())
+			mp[pos.Filename+"_"+strconv.Itoa(pos.Line)] = c.Text
 			if strings.Contains(c.Text, "nocheck:thislog") {
 				ok = true
 			}
@@ -187,7 +188,7 @@ func getComment(file *ast.File) (map[token.Pos]string, bool) {
 }
 
 func getImportObj(pass *analysis.Pass) map[types.Object]bool {
-	var mp map[types.Object]bool
+	var mp = make(map[types.Object]bool)
 	pkgs := pass.Pkg.Imports()
 	obj := analysisutil.LookupFromImports(pkgs, "log", "Print")
 	mp[obj] = true

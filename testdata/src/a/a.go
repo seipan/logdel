@@ -5,15 +5,13 @@ import (
 )
 
 func f() {
-	log.Println("hi") //aa
-	log.Println("hi") // nocheck:thislog
-	log.Print("hi")
+	log.Println("nocheck")
 	if 1 == 10 {
-		log.Println(11)
 	}
-
 	for i := 0; i < 2; i++ {
-		log.Println(1)
 	}
-
 }
+
+// this func is ......
+//aa
+// nocheck:thislog
