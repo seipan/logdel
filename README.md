@@ -1,6 +1,9 @@
 # logdel
 This oss is a tool to delete log.Println(), etc. written for debugging, etc. 
 
+## Bug
+When using this tool, all comment-outs go to the bottom of the file. Please use with this in mind.
+
 ## Example
 
 Before
