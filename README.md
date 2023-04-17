@@ -51,7 +51,7 @@ func f() {
 
 ## Install
 ```go
-import "github.com/seipan/logdel/cmd/logdel"
+go install "github.com/seipan/logdel/cmd/logdel"
 ```
 
 ## Use
