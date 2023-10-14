@@ -8,7 +8,6 @@ import (
 	"go/format"
 	"go/token"
 	"go/types"
-	"io/ioutil"
 	"log"
 	"os"
 	"strconv"
@@ -51,7 +50,7 @@ func RunDeleteLog(pass *analysis.Pass, file *ast.File) error {
 		return nil
 	}
 
-	f, err := ioutil.TempFile("", "logdelout.go")
+	f, err := os.CreateTemp("", "logdelout.go")
 
 	if err != nil {
 		log.Fatalln("Error:", err)
