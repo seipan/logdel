@@ -1,6 +1,6 @@
 module github.com/seipan/logdel
 
-go 1.19
+go 1.21
 
 require (
 	github.com/gostaticanalysis/analysisutil v0.7.1
