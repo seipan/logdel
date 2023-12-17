@@ -4,7 +4,7 @@ go 1.21
 
 require (
 	github.com/gostaticanalysis/analysisutil v0.7.1
-	golang.org/x/tools v0.16.0
+	golang.org/x/tools v0.16.1
 )
 
 require (
